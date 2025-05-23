@@ -5,7 +5,7 @@
 #include <math.h>
 #include <imgui.h>
 
-const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_02";
+const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_03";
 
 //================================================================
 // 構造体の宣言
@@ -23,10 +23,10 @@ struct Vector3
 	float z;
 };
 
-struct Sphere
+struct Segment
 {
-	Vector3 center;
-	float radius;
+	Vector3 origin;
+	Vector3 diff;
 };
 
 struct Plane
@@ -63,11 +63,8 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix);
 // グリットの描画
 void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix);
 
-// 球の描画
-void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
-
 // 当たり判定
-bool isCollision(const Sphere& s1, const Plane& plane);
+bool isCollision(const Segment& segment, const Plane& plane);
 
 // 法線と垂直なベクトルを求める
 Vector3 Perpendicular(const Vector3& vector);
@@ -112,7 +109,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// カメラの位置と角度
 	Vector3 cameraTranslate{ 0.0f,1.9f,-6.49f };
 	Vector3 cameraRotate{ 0.26f,0.0f,0.0f };
-	Sphere sphere{ {0.0f,0.0f,0.0f}, 0.5f };
+	Segment segment = { {-0.45f,0.0f,0.0f}, {1.0f,0.5f,0.0f} };
 	Plane plane = { {0.0f,1.0f,0.0f},1.0f };
 	uint32_t color = 0xFFFFFFFF;
 
@@ -143,7 +140,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// 球同士の衝突判定処理
 		//================================================================
 
-		if (isCollision(sphere, plane))
+		if (isCollision(segment, plane))
 		{
 			color = 0xe60033FF;
 		}
@@ -167,16 +164,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::Begin("Window");
 		ImGui::DragFloat3("cameraTranslate", &cameraTranslate.x, 0.01f);
 		ImGui::DragFloat3("cameraRotate", &cameraRotate.x, 0.01f);
-		ImGui::DragFloat3("sphere.center", &sphere.center.x, 0.01f);
-		ImGui::DragFloat("sphere.radius", &sphere.radius, 0.01f);
+		ImGui::DragFloat3("segment.origin",&segment.origin.x,0.01f);
+		ImGui::DragFloat("segment.diff", &segment.diff.x, 0.01f);
 		ImGui::DragFloat3("plane.normal", &plane.normal.x, 0.01f);
 		plane.normal = Normalize(plane.normal);
 		ImGui::DragFloat("plane.distance", &plane.distance, 0.01f);
 		ImGui::End();
 
 		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
-		DrawSphere(sphere, worldViewProjectionMatrix, viewportMatrix, color);
 		DrawPlane(plane, worldViewProjectionMatrix, viewportMatrix, 0xFFFFFFFF);
+		Vector3 start = Transform(Transform(segment.origin, worldViewProjectionMatrix), viewportMatrix);
+		Vector3 end = Transform(Transform(Add(segment.origin, segment.diff), worldViewProjectionMatrix), viewportMatrix);
+		Novice::DrawLine(int(start.x), int(start.y), int(end.x), int(end.y), color);
 
 		///
 		/// ↑描画処理ここまで
@@ -346,49 +345,22 @@ void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewp
 	}
 }
 
-void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color)
+bool isCollision(const Segment& segment, const Plane& plane)
 {
-	const uint32_t kSubdivision = 10;
-	const float kLonEvery = (2.0f * float(M_PI)) / float(kSubdivision);
-	const float kLatEvery = float(M_PI) / float(kSubdivision);
-	for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex)
+	// 法線と線の内積を求める
+	float dot = Dot(plane.normal, segment.diff);
+
+	// 平行の時は衝突しない
+	if (dot == 0.0f)
 	{
-		float lat = float(-M_PI) / 2.0f + kLatEvery * float(latIndex);
-
-		for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex)
-		{
-			float lon = lonIndex * kLonEvery;
-			Vector3 a, b, c;
-			a = {
-				sphere.center.x + sphere.radius * std::cos(lat) * std::cos(lon),
-				sphere.center.y + sphere.radius * std::sin(lat),
-				sphere.center.z + sphere.radius * std::cos(lat) * std::sin(lon) };
-			b = {
-				sphere.center.x + sphere.radius * std::cos(lat + kLatEvery) * std::cos(lon),
-				sphere.center.y + sphere.radius * std::sin(lat + kLatEvery),
-				sphere.center.z + sphere.radius * std::cos(lat + kLatEvery) * std::sin(lon) };
-			c = { sphere.center.x + sphere.radius * std::cos(lat) * std::cos(lon + kLonEvery),
-				sphere.center.y + sphere.radius * std::sin(lat),
-				sphere.center.z + sphere.radius * std::cos(lat) * std::sin(lon + kLonEvery) };
-
-			Vector3 aNdc = Transform(a, worldViewProjectionMatrix);
-			Vector3 aScreen = Transform(aNdc, viewportMatrix);
-			Vector3 bNdc = Transform(b, worldViewProjectionMatrix);
-			Vector3 bScreen = Transform(bNdc, viewportMatrix);
-			Vector3 cNdc = Transform(c, worldViewProjectionMatrix);
-			Vector3 cScreen = Transform(cNdc, viewportMatrix);
-			Novice::DrawLine(int(aScreen.x), int(aScreen.y), int(bScreen.x), int(bScreen.y), color);
-			Novice::DrawLine(int(aScreen.x), int(aScreen.y), int(cScreen.x), int(cScreen.y), color);
-		}
+		return false;
 	}
-}
 
-bool isCollision(const Sphere& s1, const Plane& plane)
-{
-	float k = Dot(plane.normal, s1.center) - plane.distance;
-	k = fabs(k);
+	// tを求める
+	float t = (plane.distance - Dot(segment.origin, plane.normal)) / dot;
 
-	if (k <= s1.radius)
+	// 線分と平面の当たり判定
+	if (t > 0.0f && t < 1.0f)
 	{
 		return true;
 	}
