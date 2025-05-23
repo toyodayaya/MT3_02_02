@@ -34,12 +34,6 @@ struct Triangle
 	Vector3 vertices[3];
 };
 
-struct Plane
-{
-	Vector3 normal;
-	float distance;
-};
-
 //================================================================
 // 関数の宣言
 //================================================================
@@ -72,7 +66,7 @@ void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewp
 void DrawTriangle(const Triangle& triangle, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
 
 // 当たり判定
-bool isCollision(const Segment& segment, const Triangle& triangle,const Plane& plane);
+bool isCollision(const Segment& segment, const Triangle& triangle);
 
 // 法線と垂直なベクトルを求める
 Vector3 Perpendicular(const Vector3& vector);
@@ -93,7 +87,8 @@ Vector3 Cross(const Vector3& v1, const Vector3& v2);
 Vector3 Add(const Vector3& v1, const Vector3& v2);
 
 // 減算関数
-Vector3 Subtract(const Vector3& v1, float v2);
+Vector3 Subtract(const Vector3& v1, const Vector3& v2);
+Vector3 FloatSubtract(const Vector3& v1, float v2);
 
 // 内積の関数
 float Dot(const Vector3& v1, const Vector3& v2);
@@ -117,12 +112,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// カメラの位置と角度
 	Vector3 cameraTranslate{ 0.0f,1.9f,-6.49f };
 	Vector3 cameraRotate{ 0.26f,0.0f,0.0f };
-	Segment segment = { {-0.45f,0.0f,0.0f}, {1.0f,0.5f,0.0f} };
+	Segment segment = { {-0.45f,1.0f,1.0f}, {1.0f,0.5f,1.0f} };
 	Triangle triangle;
-	Plane plane = { {-1.0f,1.0f,1.0f},1.0f };
-	triangle.vertices[0] = { plane.normal.x, 0.0f, 0.0f };
-	triangle.vertices[1] = { 0.0f, plane.normal.y, 0.0f };
-	triangle.vertices[2] = { plane.normal.z, 0.0f, 0.0f };
+	triangle.vertices[0] = { -1.0f, 0.0f, 0.0f };
+	triangle.vertices[1] = { 0.0f, 1.0f, 0.0f };
+	triangle.vertices[2] = { 1.0f, 0.0f, 0.0f };
 	uint32_t color = 0xFFFFFFFF;
 
 	// ウィンドウの×ボタンが押されるまでループ
@@ -152,7 +146,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// 球同士の衝突判定処理
 		//================================================================
 
-		if (isCollision(segment, triangle,plane))
+		if (isCollision(segment, triangle))
 		{
 			color = 0xe60033FF;
 		}
@@ -323,12 +317,23 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix)
 	return result;
 }
 
-bool isCollision(const Segment& segment, const Triangle& triangle,const Plane& plane)
+bool isCollision(const Segment& segment, const Triangle& triangle)
 {
-	Normalize(plane.normal);
+	// 三角形の辺のベクトルを求める
+	Vector3 edge1 = Subtract(triangle.vertices[1], triangle.vertices[0]);
+	Vector3 edge2 = Subtract(triangle.vertices[2], triangle.vertices[0]);
+
+	// クロス積で法線を算出
+	Vector3 normal = Cross(edge1, edge2);
+
+	// 正規化
+	normal = Normalize(normal);
+
+	// 線分との距離を求める
+	float distance = Dot(normal,triangle.vertices[0]);
 
 	// 法線と線の内積を求める
-	float dot = Dot(plane.normal, segment.diff);
+	float dot = Dot(normal, segment.diff);
 
 	// 平行の時は衝突しない
 	if (dot == 0.0f)
@@ -337,21 +342,35 @@ bool isCollision(const Segment& segment, const Triangle& triangle,const Plane& p
 	}
 
 	// tを求める
-	float t = (plane.distance - Dot(segment.origin, plane.normal)) / dot;
+	float t = (distance - Dot(segment.origin, normal)) / dot;
 
-	Vector3 v0p = Subtract(triangle.vertices[0], t);
-	Vector3 v1p = Subtract(triangle.vertices[1], t);
-	Vector3 v2p = Subtract(triangle.vertices[2], t);
-
-	Vector3 cross01 = Cross(triangle.vertices[0], v1p);
-	Vector3 cross12 = Cross(triangle.vertices[1], v2p);
-	Vector3 cross20 = Cross(triangle.vertices[2], v0p);
-
-	if (Dot(cross01, plane.normal) >= 0.0f &&
-		Dot(cross12, plane.normal) >= 0.0f &&
-		Dot(cross20, plane.normal) >= 0.0f)
+	// 線分と平面の当たり判定
+	if (t >= 0.0f && t <= 1.0f)
 	{
-		return true;
+		// 各辺を結んだベクトルを求める
+		Vector3 v01 = Subtract(triangle.vertices[0], triangle.vertices[1]);
+		Vector3 v12 = Subtract(triangle.vertices[1], triangle.vertices[2]);
+		Vector3 v20 = Subtract(triangle.vertices[2], triangle.vertices[0]);
+
+		// 頂点と衝突点を結んだベクトルを求める
+		Vector3 intersect = Add(segment.origin, Vector3Multiply(t,segment.diff));
+		Vector3 v0p = Subtract(intersect, triangle.vertices[0]);
+		Vector3 v1p = Subtract(intersect, triangle.vertices[1]);
+		Vector3 v2p = Subtract(intersect, triangle.vertices[2]);
+
+		// 各辺を結んだベクトルと、頂点と衝突点を結んだベクトルのクロス積を求める
+		Vector3 cross01 = Cross(v01, v1p);
+		Vector3 cross12 = Cross(v12, v2p);
+		Vector3 cross20 = Cross(v20, v0p);
+
+		// 三角形と線分の衝突判定
+		if (Dot(cross01, normal) >= 0.0f &&
+			Dot(cross12, normal) >= 0.0f &&
+			Dot(cross20, normal) >= 0.0f)
+		{
+			return true;
+		}
+		
 	}
 
 	return false;
@@ -410,29 +429,6 @@ Vector3 Perpendicular(const Vector3& vector)
 	}
 
 	return { 0.0f,-vector.z,vector.y };
-}
-
-void DrawPlane(const Plane& plane, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color)
-{
-	Vector3 center = Vector3Multiply(plane.distance, plane.normal);
-	Vector3 perpendiculars[4];
-	perpendiculars[0] = Normalize(Perpendicular(plane.normal));
-	perpendiculars[1] = { -perpendiculars[0].x,-perpendiculars[0].y,-perpendiculars[0].z };
-	perpendiculars[2] = Cross(plane.normal, perpendiculars[0]);
-	perpendiculars[3] = { -perpendiculars[2].x,-perpendiculars[2].y,-perpendiculars[2].z };
-
-	Vector3 points[4];
-	for (int index = 0; index < 4; ++index)
-	{
-		Vector3 extend = Vector3Multiply(2.0f, perpendiculars[index]);
-		Vector3 point = Add(center, extend);
-		points[index] = Transform(Transform(point, worldViewProjectionMatrix), viewportMatrix);
-	}
-
-	Novice::DrawLine(int(points[0].x), int(points[0].y), int(points[2].x), int(points[2].y), color);
-	Novice::DrawLine(int(points[1].x), int(points[1].y), int(points[2].x), int(points[2].y), color);
-	Novice::DrawLine(int(points[1].x), int(points[1].y), int(points[3].x), int(points[3].y), color);
-	Novice::DrawLine(int(points[3].x), int(points[3].y), int(points[0].x), int(points[0].y), color);
 }
 
 float Length(const Vector3& v)
@@ -495,12 +491,21 @@ Vector3 Add(const Vector3& v1, const Vector3& v2)
 	return ret;
 }
 
-Vector3 Subtract(const Vector3& v1,float v2)
+Vector3 FloatSubtract(const Vector3& v1,float v2)
 {
 	Vector3 ret;
 	ret.x = v1.x - v2;
 	ret.y = v1.y - v2;
 	ret.z = v1.z - v2;
+	return ret;
+}
+
+Vector3 Subtract(const Vector3& v1, const Vector3& v2)
+{
+	Vector3 ret;
+	ret.x = v1.x - v2.x;
+	ret.y = v1.y - v2.y;
+	ret.z = v1.z - v2.z;
 	return ret;
 }
 
