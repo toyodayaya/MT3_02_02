@@ -5,7 +5,7 @@
 #include <math.h>
 #include <imgui.h>
 
-const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_03";
+const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_04";
 
 //================================================================
 // 構造体の宣言
@@ -27,6 +27,11 @@ struct Segment
 {
 	Vector3 origin;
 	Vector3 diff;
+};
+
+struct Triangle
+{
+	Vector3 vertices[3];
 };
 
 struct Plane
@@ -63,14 +68,14 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix);
 // グリットの描画
 void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix);
 
+// 三角形の描画
+void DrawTriangle(const Triangle& triangle, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
+
 // 当たり判定
-bool isCollision(const Segment& segment, const Plane& plane);
+bool isCollision(const Segment& segment, const Triangle& triangle,const Plane& plane);
 
 // 法線と垂直なベクトルを求める
 Vector3 Perpendicular(const Vector3& vector);
-
-// 平面の描画
-void DrawPlane(const Plane& plane, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
 
 // ノルン(長さ)の関数
 float Length(const Vector3& v);
@@ -86,6 +91,9 @@ Vector3 Cross(const Vector3& v1, const Vector3& v2);
 
 // 加算関数
 Vector3 Add(const Vector3& v1, const Vector3& v2);
+
+// 減算関数
+Vector3 Subtract(const Vector3& v1, float v2);
 
 // 内積の関数
 float Dot(const Vector3& v1, const Vector3& v2);
@@ -110,7 +118,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	Vector3 cameraTranslate{ 0.0f,1.9f,-6.49f };
 	Vector3 cameraRotate{ 0.26f,0.0f,0.0f };
 	Segment segment = { {-0.45f,0.0f,0.0f}, {1.0f,0.5f,0.0f} };
-	Plane plane = { {0.0f,1.0f,0.0f},1.0f };
+	Triangle triangle;
+	Plane plane = { {-1.0f,1.0f,1.0f},1.0f };
+	triangle.vertices[0] = { plane.normal.x, 0.0f, 0.0f };
+	triangle.vertices[1] = { 0.0f, plane.normal.y, 0.0f };
+	triangle.vertices[2] = { plane.normal.z, 0.0f, 0.0f };
 	uint32_t color = 0xFFFFFFFF;
 
 	// ウィンドウの×ボタンが押されるまでループ
@@ -140,7 +152,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// 球同士の衝突判定処理
 		//================================================================
 
-		if (isCollision(segment, plane))
+		if (isCollision(segment, triangle,plane))
 		{
 			color = 0xe60033FF;
 		}
@@ -164,18 +176,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::Begin("Window");
 		ImGui::DragFloat3("cameraTranslate", &cameraTranslate.x, 0.01f);
 		ImGui::DragFloat3("cameraRotate", &cameraRotate.x, 0.01f);
-		ImGui::DragFloat3("segment.origin",&segment.origin.x,0.01f);
+		ImGui::DragFloat3("segment.origin", &segment.origin.x, 0.01f);
 		ImGui::DragFloat("segment.diff", &segment.diff.x, 0.01f);
-		ImGui::DragFloat3("plane.normal", &plane.normal.x, 0.01f);
-		plane.normal = Normalize(plane.normal);
-		ImGui::DragFloat("plane.distance", &plane.distance, 0.01f);
+		ImGui::DragFloat3("Triangle.v1", &triangle.vertices[0].x, 0.01f);
+		ImGui::DragFloat3("Triangle.v2", &triangle.vertices[1].x, 0.01f);
+		ImGui::DragFloat3("Triangle.v3", &triangle.vertices[2].x, 0.01f);
 		ImGui::End();
 
 		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
-		DrawPlane(plane, worldViewProjectionMatrix, viewportMatrix, 0xFFFFFFFF);
 		Vector3 start = Transform(Transform(segment.origin, worldViewProjectionMatrix), viewportMatrix);
 		Vector3 end = Transform(Transform(Add(segment.origin, segment.diff), worldViewProjectionMatrix), viewportMatrix);
 		Novice::DrawLine(int(start.x), int(start.y), int(end.x), int(end.y), color);
+		DrawTriangle(triangle, worldViewProjectionMatrix, viewportMatrix, color);
 
 		///
 		/// ↑描画処理ここまで
@@ -311,6 +323,40 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix)
 	return result;
 }
 
+bool isCollision(const Segment& segment, const Triangle& triangle,const Plane& plane)
+{
+	Normalize(plane.normal);
+
+	// 法線と線の内積を求める
+	float dot = Dot(plane.normal, segment.diff);
+
+	// 平行の時は衝突しない
+	if (dot == 0.0f)
+	{
+		return false;
+	}
+
+	// tを求める
+	float t = (plane.distance - Dot(segment.origin, plane.normal)) / dot;
+
+	Vector3 v0p = Subtract(triangle.vertices[0], t);
+	Vector3 v1p = Subtract(triangle.vertices[1], t);
+	Vector3 v2p = Subtract(triangle.vertices[2], t);
+
+	Vector3 cross01 = Cross(triangle.vertices[0], v1p);
+	Vector3 cross12 = Cross(triangle.vertices[1], v2p);
+	Vector3 cross20 = Cross(triangle.vertices[2], v0p);
+
+	if (Dot(cross01, plane.normal) >= 0.0f &&
+		Dot(cross12, plane.normal) >= 0.0f &&
+		Dot(cross20, plane.normal) >= 0.0f)
+	{
+		return true;
+	}
+
+	return false;
+}
+
 void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix)
 {
 	const float kGridHalfWidth = 2.0f; // gridの半分の幅
@@ -345,27 +391,15 @@ void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewp
 	}
 }
 
-bool isCollision(const Segment& segment, const Plane& plane)
+void DrawTriangle(const Triangle& triangle, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color)
 {
-	// 法線と線の内積を求める
-	float dot = Dot(plane.normal, segment.diff);
+	Vector3 v1 = Transform(Transform(triangle.vertices[0], worldViewProjectionMatrix), viewportMatrix);
+	Vector3 v2 = Transform(Transform(triangle.vertices[1], worldViewProjectionMatrix), viewportMatrix);
+	Vector3 v3 = Transform(Transform(triangle.vertices[2], worldViewProjectionMatrix), viewportMatrix);
 
-	// 平行の時は衝突しない
-	if (dot == 0.0f)
-	{
-		return false;
-	}
-
-	// tを求める
-	float t = (plane.distance - Dot(segment.origin, plane.normal)) / dot;
-
-	// 線分と平面の当たり判定
-	if (t > 0.0f && t < 1.0f)
-	{
-		return true;
-	}
-
-	return false;
+	Novice::DrawLine(int(v1.x), int(v1.y), int(v2.x), int(v2.y), color);
+	Novice::DrawLine(int(v2.x), int(v2.y), int(v3.x), int(v3.y), color);
+	Novice::DrawLine(int(v3.x), int(v3.y), int(v1.x), int(v1.y), color);
 }
 
 Vector3 Perpendicular(const Vector3& vector)
@@ -458,6 +492,15 @@ Vector3 Add(const Vector3& v1, const Vector3& v2)
 	ret.x = v1.x + v2.x;
 	ret.y = v1.y + v2.y;
 	ret.z = v1.z + v2.z;
+	return ret;
+}
+
+Vector3 Subtract(const Vector3& v1,float v2)
+{
+	Vector3 ret;
+	ret.x = v1.x - v2;
+	ret.y = v1.y - v2;
+	ret.z = v1.z - v2;
 	return ret;
 }
 
