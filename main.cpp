@@ -112,7 +112,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// カメラの位置と角度
 	Vector3 cameraTranslate{ 0.0f,1.9f,-6.49f };
 	Vector3 cameraRotate{ 0.26f,0.0f,0.0f };
-	Segment segment = { {-0.45f,1.0f,1.0f}, {1.0f,0.5f,1.0f} };
+	Segment segment = { {-0.0f,0.5f,1.0f}, {0.0f,0.5f,2.0f} };
 	Triangle triangle;
 	triangle.vertices[0] = { -1.0f, 0.0f, 0.0f };
 	triangle.vertices[1] = { 0.0f, 1.0f, 0.0f };
@@ -181,7 +181,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Vector3 start = Transform(Transform(segment.origin, worldViewProjectionMatrix), viewportMatrix);
 		Vector3 end = Transform(Transform(Add(segment.origin, segment.diff), worldViewProjectionMatrix), viewportMatrix);
 		Novice::DrawLine(int(start.x), int(start.y), int(end.x), int(end.y), color);
-		DrawTriangle(triangle, worldViewProjectionMatrix, viewportMatrix, color);
+		DrawTriangle(triangle, worldViewProjectionMatrix, viewportMatrix, WHITE);
 
 		///
 		/// ↑描画処理ここまで
@@ -319,58 +319,59 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix)
 
 bool isCollision(const Segment& segment, const Triangle& triangle)
 {
-	// 三角形の辺のベクトルを求める
-	Vector3 edge1 = Subtract(triangle.vertices[1], triangle.vertices[0]);
-	Vector3 edge2 = Subtract(triangle.vertices[2], triangle.vertices[0]);
 
-	// クロス積で法線を算出
-	Vector3 normal = Cross(edge1, edge2);
+	Vector3 p0 = segment.origin;
+	Vector3 p1 = Add(segment.origin, segment.diff);
 
-	// 正規化
-	normal = Normalize(normal);
+	Vector3 v0 = triangle.vertices[0];
+	Vector3 v1 = triangle.vertices[1];
+	Vector3 v2 = triangle.vertices[2];
 
-	// 線分との距離を求める
-	float distance = Dot(normal,triangle.vertices[0]);
+	Vector3 edge1 = Subtract(v1, v0);
+	Vector3 edge2 = Subtract(v2, v0);
 
-	// 法線と線の内積を求める
-	float dot = Dot(normal, segment.diff);
+	// 法線ベクトル
+	Vector3 normal = Normalize(Cross(edge1, edge2));
+	float d = -Dot(normal, v0);
 
-	// 平行の時は衝突しない
-	if (dot == 0.0f)
-	{
+	float dist0 = Dot(normal, p0) + d;
+	float dist1 = Dot(normal, p1) + d;
+
+	// 両端が同じ側にある場合、交差しない
+	if (dist0 * dist1 > 0.0f) {
 		return false;
 	}
 
-	// tを求める
-	float t = (distance - Dot(segment.origin, normal)) / dot;
+	// t: 線分と平面の交差割合
+	float t = dist0 / (dist0 - dist1);
+	if (t < 0.0f || t > 1.0f) {
+		return false;
+	}
 
-	// 線分と平面の当たり判定
-	if (t >= 0.0f && t <= 1.0f)
+	// 衝突点の計算
+	Vector3 direction = Subtract(p1, p0);
+	Vector3 intersect = Add(p0, Vector3Multiply(t, direction));
+
+	// 各辺ベクトル
+	Vector3 v01 = Subtract(v1, v0);
+	Vector3 v12 = Subtract(v2, v1);
+	Vector3 v20 = Subtract(v0, v2);
+
+	// 各頂点から衝突点へのベクトル
+	Vector3 v0p = Subtract(intersect, v0);
+	Vector3 v1p = Subtract(intersect, v1);
+	Vector3 v2p = Subtract(intersect, v2);
+
+	// 外積と法線との符号判定
+	Vector3 cross01 = Cross(v01, v0p);
+	Vector3 cross12 = Cross(v12, v1p);
+	Vector3 cross20 = Cross(v20, v2p);
+
+	if (Dot(cross01, normal) >= 0.0f &&
+		Dot(cross12, normal) >= 0.0f &&
+		Dot(cross20, normal) >= 0.0f)
 	{
-		// 各辺を結んだベクトルを求める
-		Vector3 v01 = Subtract(triangle.vertices[0], triangle.vertices[1]);
-		Vector3 v12 = Subtract(triangle.vertices[1], triangle.vertices[2]);
-		Vector3 v20 = Subtract(triangle.vertices[2], triangle.vertices[0]);
-
-		// 頂点と衝突点を結んだベクトルを求める
-		Vector3 intersect = Add(segment.origin, Vector3Multiply(t,segment.diff));
-		Vector3 v0p = Subtract(intersect, triangle.vertices[0]);
-		Vector3 v1p = Subtract(intersect, triangle.vertices[1]);
-		Vector3 v2p = Subtract(intersect, triangle.vertices[2]);
-
-		// 各辺を結んだベクトルと、頂点と衝突点を結んだベクトルのクロス積を求める
-		Vector3 cross01 = Cross(v01, v1p);
-		Vector3 cross12 = Cross(v12, v2p);
-		Vector3 cross20 = Cross(v20, v0p);
-
-		// 三角形と線分の衝突判定
-		if (Dot(cross01, normal) >= 0.0f &&
-			Dot(cross12, normal) >= 0.0f &&
-			Dot(cross20, normal) >= 0.0f)
-		{
-			return true;
-		}
-		
+		return true;
 	}
 
 	return false;
