@@ -5,7 +5,7 @@
 #include <math.h>
 #include <imgui.h>
 
-const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_04";
+const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_05";
 
 //================================================================
 // 構造体の宣言
@@ -23,15 +23,10 @@ struct Vector3
 	float z;
 };
 
-struct Segment
+struct AABB
 {
-	Vector3 origin;
-	Vector3 diff;
-};
-
-struct Triangle
-{
-	Vector3 vertices[3];
+	Vector3 min; // 最小点
+	Vector3 max; // 最大点
 };
 
 //================================================================
@@ -62,11 +57,8 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix);
 // グリットの描画
 void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix);
 
-// 三角形の描画
-void DrawTriangle(const Triangle& triangle, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
-
 // 当たり判定
-bool isCollision(const Segment& segment, const Triangle& triangle);
+bool isCollision(const AABB& aabb1,const AABB& aabb2);
 
 // 法線と垂直なベクトルを求める
 Vector3 Perpendicular(const Vector3& vector);
@@ -90,6 +82,9 @@ Vector3 Add(const Vector3& v1, const Vector3& v2);
 Vector3 Subtract(const Vector3& v1, const Vector3& v2);
 Vector3 FloatSubtract(const Vector3& v1, float v2);
 
+// AABBの描画
+void DrawAABB(const AABB& aabb, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
+
 // 内積の関数
 float Dot(const Vector3& v1, const Vector3& v2);
 
@@ -112,12 +107,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// カメラの位置と角度
 	Vector3 cameraTranslate{ 0.0f,1.9f,-6.49f };
 	Vector3 cameraRotate{ 0.26f,0.0f,0.0f };
-	Segment segment = { {-0.0f,0.5f,1.0f}, {0.0f,0.5f,2.0f} };
-	Triangle triangle;
-	triangle.vertices[0] = { -1.0f, 0.0f, 0.0f };
-	triangle.vertices[1] = { 0.0f, 1.0f, 0.0f };
-	triangle.vertices[2] = { 1.0f, 0.0f, 0.0f };
 	uint32_t color = 0xFFFFFFFF;
+
+	// 矩形の初期値
+	AABB aabb1{
+		{-0.5f,-0.5f,-0.5f},
+		{0.0f,0.0f,0.0f}
+	};
+
+	AABB aabb2{
+		{0.2f,0.2f,0.2f},
+		{1.0f,1.0f,1.0f}
+	};
 
 	// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
@@ -146,7 +147,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// 球同士の衝突判定処理
 		//================================================================
 
-		if (isCollision(segment, triangle))
+		if (isCollision(aabb1,aabb2))
 		{
 			color = 0xe60033FF;
 		}
@@ -170,18 +171,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::Begin("Window");
 		ImGui::DragFloat3("cameraTranslate", &cameraTranslate.x, 0.01f);
 		ImGui::DragFloat3("cameraRotate", &cameraRotate.x, 0.01f);
-		ImGui::DragFloat3("segment.origin", &segment.origin.x, 0.01f);
-		ImGui::DragFloat("segment.diff", &segment.diff.x, 0.01f);
-		ImGui::DragFloat3("Triangle.v1", &triangle.vertices[0].x, 0.01f);
-		ImGui::DragFloat3("Triangle.v2", &triangle.vertices[1].x, 0.01f);
-		ImGui::DragFloat3("Triangle.v3", &triangle.vertices[2].x, 0.01f);
+		ImGui::DragFloat3("aabb1 min", &aabb1.min.x, 0.01f);
+		ImGui::DragFloat3("aabb1 max", &aabb1.max.x, 0.01f);
+		ImGui::DragFloat3("aabb2 min", &aabb2.min.x, 0.01f);
+		ImGui::DragFloat3("aabb2 max", &aabb2.max.x, 0.01f);
 		ImGui::End();
 
 		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
-		Vector3 start = Transform(Transform(segment.origin, worldViewProjectionMatrix), viewportMatrix);
-		Vector3 end = Transform(Transform(Add(segment.origin, segment.diff), worldViewProjectionMatrix), viewportMatrix);
-		Novice::DrawLine(int(start.x), int(start.y), int(end.x), int(end.y), color);
-		DrawTriangle(triangle, worldViewProjectionMatrix, viewportMatrix, WHITE);
+		DrawAABB(aabb1, worldViewProjectionMatrix, viewportMatrix, color);
+		DrawAABB(aabb2, worldViewProjectionMatrix, viewportMatrix, color);
 
 		///
 		/// ↑描画処理ここまで
@@ -317,59 +315,11 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix)
 	return result;
 }
 
-bool isCollision(const Segment& segment, const Triangle& triangle)
+bool isCollision(const AABB& aabb1,const AABB& aabb2)
 {
-
-	Vector3 p0 = segment.origin;
-	Vector3 p1 = Add(segment.origin, segment.diff);
-
-	Vector3 v0 = triangle.vertices[0];
-	Vector3 v1 = triangle.vertices[1];
-	Vector3 v2 = triangle.vertices[2];
-
-	Vector3 edge1 = Subtract(v1, v0);
-	Vector3 edge2 = Subtract(v2, v0);
-
-	// 法線ベクトル
-	Vector3 normal = Normalize(Cross(edge1, edge2));
-	float d = -Dot(normal, v0);
-
-	float dist0 = Dot(normal, p0) + d;
-	float dist1 = Dot(normal, p1) + d;
-
-	// 両端が同じ側にある場合、交差しない
-	if (dist0 * dist1 > 0.0f) {
-		return false;
-	}
-
-	// t: 線分と平面の交差割合
-	float t = dist0 / (dist0 - dist1);
-	if (t < 0.0f || t > 1.0f) {
-		return false;
-	}
-
-	// 衝突点の計算
-	Vector3 direction = Subtract(p1, p0);
-	Vector3 intersect = Add(p0, Vector3Multiply(t, direction));
-
-	// 各辺ベクトル
-	Vector3 v01 = Subtract(v1, v0);
-	Vector3 v12 = Subtract(v2, v1);
-	Vector3 v20 = Subtract(v0, v2);
-
-	// 各頂点から衝突点へのベクトル
-	Vector3 v0p = Subtract(intersect, v0);
-	Vector3 v1p = Subtract(intersect, v1);
-	Vector3 v2p = Subtract(intersect, v2);
-
-	// 外積と法線との符号判定
-	Vector3 cross01 = Cross(v01, v0p);
-	Vector3 cross12 = Cross(v12, v1p);
-	Vector3 cross20 = Cross(v20, v2p);
-
-	if (Dot(cross01, normal) >= 0.0f &&
-		Dot(cross12, normal) >= 0.0f &&
-		Dot(cross20, normal) >= 0.0f)
+	if (aabb1.min.x <= aabb2.max.x && aabb1.max.x >= aabb2.min.x &&
+		aabb1.min.y <= aabb2.max.y && aabb1.max.y >= aabb2.min.y &&
+		aabb1.min.z <= aabb2.max.z && aabb1.max.z >= aabb2.min.z)
 	{
 		return true;
 	}
@@ -411,15 +361,45 @@ void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewp
 	}
 }
 
-void DrawTriangle(const Triangle& triangle, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color)
+void DrawAABB(const AABB& aabb, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color)
 {
-	Vector3 v1 = Transform(Transform(triangle.vertices[0], worldViewProjectionMatrix), viewportMatrix);
-	Vector3 v2 = Transform(Transform(triangle.vertices[1], worldViewProjectionMatrix), viewportMatrix);
-	Vector3 v3 = Transform(Transform(triangle.vertices[2], worldViewProjectionMatrix), viewportMatrix);
+	// aabbの8つの頂点を計算
+	Vector3 vertices[8] = {
+		{ aabb.min.x, aabb.min.y, aabb.min.z },
+		{ aabb.max.x, aabb.min.y, aabb.min.z },
+		{ aabb.max.x, aabb.max.y, aabb.min.z },
+		{ aabb.min.x, aabb.max.y, aabb.min.z },
+		{ aabb.min.x, aabb.min.y, aabb.max.z },
+		{ aabb.max.x, aabb.min.y, aabb.max.z },
+		{ aabb.max.x, aabb.max.y, aabb.max.z },
+		{ aabb.min.x, aabb.max.y, aabb.max.z }
+	};
 
-	Novice::DrawLine(int(v1.x), int(v1.y), int(v2.x), int(v2.y), color);
-	Novice::DrawLine(int(v2.x), int(v2.y), int(v3.x), int(v3.y), color);
-	Novice::DrawLine(int(v3.x), int(v3.y), int(v1.x), int(v1.y), color);
+	// 頂点をNDC座標に変換
+	for (int i = 0; i < 8; ++i)
+	{
+		vertices[i] = Transform(vertices[i], worldViewProjectionMatrix);
+	}
+
+	// 頂点をスクリーン座標に変換
+	for (int i = 0; i < 8; ++i)
+	{
+		vertices[i] = Transform(vertices[i], viewportMatrix);
+	}
+
+	Novice::DrawLine(int(vertices[0].x), int(vertices[0].y), int(vertices[1].x), int(vertices[1].y), color);
+	Novice::DrawLine(int(vertices[1].x), int(vertices[1].y), int(vertices[2].x), int(vertices[2].y), color);
+	Novice::DrawLine(int(vertices[2].x), int(vertices[2].y), int(vertices[3].x), int(vertices[3].y), color);
+	Novice::DrawLine(int(vertices[3].x), int(vertices[3].y), int(vertices[0].x), int(vertices[0].y), color);
+	Novice::DrawLine(int(vertices[4].x), int(vertices[4].y), int(vertices[5].x), int(vertices[5].y), color);
+	Novice::DrawLine(int(vertices[5].x), int(vertices[5].y), int(vertices[6].x), int(vertices[6].y), color);
+	Novice::DrawLine(int(vertices[6].x), int(vertices[6].y), int(vertices[7].x), int(vertices[7].y), color);
+	Novice::DrawLine(int(vertices[7].x), int(vertices[7].y), int(vertices[4].x), int(vertices[4].y), color);
+	Novice::DrawLine(int(vertices[0].x), int(vertices[0].y), int(vertices[4].x), int(vertices[4].y), color);
+	Novice::DrawLine(int(vertices[1].x), int(vertices[1].y), int(vertices[5].x), int(vertices[5].y), color);
+	Novice::DrawLine(int(vertices[2].x), int(vertices[2].y), int(vertices[6].x), int(vertices[6].y), color);
+	Novice::DrawLine(int(vertices[3].x), int(vertices[3].y), int(vertices[7].x), int(vertices[7].y), color);
+	
 }
 
 Vector3 Perpendicular(const Vector3& vector)
