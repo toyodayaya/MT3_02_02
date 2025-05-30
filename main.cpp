@@ -6,7 +6,7 @@
 #include <imgui.h>
 #include <algorithm>
 
-const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_05";
+const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_06";
 
 //================================================================
 // 構造体の宣言
@@ -149,6 +149,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kWindowWidth) / float(kWindowHeight), 0.1f, 100.0f);
 		Matrix4x4 worldViewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
 		Matrix4x4 viewportMatrix = MakeViewportMatrix(0, 0, float(kWindowWidth), float(kWindowHeight), 0.0f, 1.0f);
+
+		//================================================================
+		// 入れ替わらないようにする処理
+		//================================================================
+
+		aabb1.min.x = (std::min)(aabb1.min.x, aabb1.max.x);
+		aabb1.min.y = (std::min)(aabb1.min.y, aabb1.max.y);
+		aabb1.min.z = (std::min)(aabb1.min.z, aabb1.max.z);
+		aabb1.max.x = (std::max)(aabb1.min.x, aabb1.max.x);
+		aabb1.max.y = (std::max)(aabb1.min.y, aabb1.max.y);
+		aabb1.max.z = (std::max)(aabb1.min.z, aabb1.max.z);
 
 		//================================================================
 		// 球同士の衝突判定処理
