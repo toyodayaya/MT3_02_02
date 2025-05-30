@@ -6,7 +6,7 @@
 #include <imgui.h>
 #include <algorithm>
 
-const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_05";
+const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_07";
 
 //================================================================
 // 構造体の宣言
@@ -30,12 +30,11 @@ struct AABB
 	Vector3 max; // 最大点
 };
 
-struct Sphere
+struct Segment
 {
-	Vector3 center;
-	float radius;
+	Vector3 origin;
+	Vector3 diff;
 };
-
 //================================================================
 // 関数の宣言
 //================================================================
@@ -65,7 +64,7 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix);
 void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix);
 
 // 当たり判定
-bool isCollision(const AABB& aabb1,const Sphere& sphere);
+bool isCollision(const AABB& aabb1,const Segment& segment);
 
 // 法線と垂直なベクトルを求める
 Vector3 Perpendicular(const Vector3& vector);
@@ -91,9 +90,6 @@ Vector3 FloatSubtract(const Vector3& v1, float v2);
 
 // AABBの描画
 void DrawAABB(const AABB& aabb, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
-
-// 球の描画
-void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
 
 // 内積の関数
 float Dot(const Vector3& v1, const Vector3& v2);
@@ -122,10 +118,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// 矩形の初期値
 	AABB aabb1{
 		{-0.5f,-0.5f,-0.5f},
-		{0.0f,0.0f,0.0f}
+		{0.5f,0.5f,0.5f}
 	};
 
-	Sphere sphere{ {0.0f,0.0f,0.0f}, 0.5f };
+	Segment segment = { {-0.7f,0.3f,0.0f}, {2.0f,-0.5f,0.0f} };
 
 	// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
@@ -151,10 +147,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Matrix4x4 viewportMatrix = MakeViewportMatrix(0, 0, float(kWindowWidth), float(kWindowHeight), 0.0f, 1.0f);
 
 		//================================================================
+		// 入れ替わらないようにする処理
+		//================================================================
+
+		aabb1.min.x = (std::min)(aabb1.min.x, aabb1.max.x);
+		aabb1.min.y = (std::min)(aabb1.min.y, aabb1.max.y);
+		aabb1.min.z = (std::min)(aabb1.min.z, aabb1.max.z);
+		aabb1.max.x = (std::max)(aabb1.min.x, aabb1.max.x);
+		aabb1.max.y = (std::max)(aabb1.min.y, aabb1.max.y);
+		aabb1.max.z = (std::max)(aabb1.min.z, aabb1.max.z);
+
+		//================================================================
 		// 球同士の衝突判定処理
 		//================================================================
 
-		if (isCollision(aabb1,sphere))
+		if (isCollision(aabb1,segment))
 		{
 			color = 0xe60033FF;
 		}
@@ -180,13 +187,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::DragFloat3("cameraRotate", &cameraRotate.x, 0.01f);
 		ImGui::DragFloat3("aabb1 min", &aabb1.min.x, 0.01f);
 		ImGui::DragFloat3("aabb1 max", &aabb1.max.x, 0.01f);
-		ImGui::DragFloat3("sphere.center", &sphere.center.x, 0.01f);
-		ImGui::DragFloat("sphere.radius", &sphere.radius, 0.01f);
+		ImGui::DragFloat3("segment.origin", &segment.origin.x, 0.01f);
+		ImGui::DragFloat("segment.diff", &segment.diff.x, 0.01f);
 		ImGui::End();
 
 		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
+		Vector3 start = Transform(Transform(segment.origin, worldViewProjectionMatrix), viewportMatrix);
+		Vector3 end = Transform(Transform(Add(segment.origin, segment.diff), worldViewProjectionMatrix), viewportMatrix);
+		Novice::DrawLine(int(start.x), int(start.y), int(end.x), int(end.y), WHITE);
 		DrawAABB(aabb1, worldViewProjectionMatrix, viewportMatrix, color);
-		DrawSphere(sphere, worldViewProjectionMatrix, viewportMatrix, color);
 
 		///
 		/// ↑描画処理ここまで
@@ -322,24 +331,68 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix)
 	return result;
 }
 
-bool isCollision(const AABB& aabb1,const Sphere& sphere)
+bool isCollision(const AABB& aabb1,const Segment& segment)
 {
-	// 最近接点を求める
-	Vector3 closestPoint = {
-		std::clamp(sphere.center.x, aabb1.min.x, aabb1.max.x),
-		std::clamp(sphere.center.y, aabb1.min.y, aabb1.max.y),
-		std::clamp(sphere.center.z, aabb1.min.z, aabb1.max.z)
-	};
+	float txMin;
+	float txMax;
+	float tyMin;
+	float tyMax;
+	float tzMin;
+	float tzMax;
 
-	Vector3 d = Subtract(sphere.center, closestPoint);
+	if (segment.diff.x == 0.0f) {
+		if (segment.origin.x < aabb1.min.x || segment.origin.x > aabb1.max.x) return false;
+		txMin = -INFINITY; txMax = INFINITY;
+	}
+	else {
+		txMin = (aabb1.min.x - segment.origin.x) / segment.diff.x;
+		txMax = (aabb1.max.x - segment.origin.x) / segment.diff.x;
+	}
 
-	// 最近接点と球の中心の距離を計算
-	float distance = Length(d);
+	if (segment.diff.y == 0.0f) {
+		if (segment.origin.y < aabb1.min.y || segment.origin.y > aabb1.max.y) return false;
+		tyMin = -INFINITY; tyMax = INFINITY;
+	}
+	else {
+		tyMin = (aabb1.min.y - segment.origin.y) / segment.diff.y;
+		tyMax = (aabb1.max.y - segment.origin.y) / segment.diff.y;
+	}
 
-	// 距離が半径よりも小さければ衝突
-	if (distance <= sphere.radius)
+	if (segment.diff.z == 0.0f) {
+		if (segment.origin.z < aabb1.min.z || segment.origin.z > aabb1.max.z) return false;
+		tzMin = -INFINITY; tzMax = INFINITY;
+	}
+	else {
+		tzMin = (aabb1.min.z - segment.origin.z) / segment.diff.z;
+		tzMax = (aabb1.max.z - segment.origin.z) / segment.diff.z;
+	}
+
+	Vector3 tNear;
+	tNear.x = (std::min)(txMin, txMax);
+	tNear.y = (std::min)(tyMin, tyMax);
+	tNear.z = (std::min)(tzMin, tzMax);
+	Vector3 tFar;
+	tFar.x = (std::max)(txMin, txMax);
+	tFar.y = (std::max)(tyMin, tyMax);
+	tFar.z = (std::max)(tzMin, tzMax);
+
+	tNear.x = (std::min)(txMin, txMax);
+	tFar.x = (std::max)(txMin, txMax);
+	tNear.y = (std::min)(tyMin, tyMax);
+	tFar.y = (std::max)(tyMin, tyMax);
+	tNear.z = (std::min)(tzMin, tzMax);
+	tFar.z = (std::max)(tzMin, tzMax);
+
+	// AABBの衝突点のtが小さい方
+	float tMin = (std::max)((std::max)(tNear.x, tNear.y), tNear.z);
+	// AABBの衝突点のtが大きい方
+	float tMax = (std::min)((std::min)(tFar.x, tFar.y), tFar.z);
+	if (tMin <= tMax)
 	{
-		return true;
+		if (tMin <= tMax && tMax >= 0.0f && tMin <= 1.0f)
+		{
+			return true;
+		}
 	}
 
 	return false;
@@ -418,43 +471,6 @@ void DrawAABB(const AABB& aabb, const Matrix4x4& worldViewProjectionMatrix, cons
 	Novice::DrawLine(int(vertices[2].x), int(vertices[2].y), int(vertices[6].x), int(vertices[6].y), color);
 	Novice::DrawLine(int(vertices[3].x), int(vertices[3].y), int(vertices[7].x), int(vertices[7].y), color);
 	
-}
-
-void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color)
-{
-	const uint32_t kSubdivision = 10;
-	const float kLonEvery = (2.0f * float(M_PI)) / float(kSubdivision);
-	const float kLatEvery = float(M_PI) / float(kSubdivision);
-	for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex)
-	{
-		float lat = float(-M_PI) / 2.0f + kLatEvery * float(latIndex);
-
-		for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex)
-		{
-			float lon = lonIndex * kLonEvery;
-			Vector3 a, b, c;
-			a = {
-				sphere.center.x + sphere.radius * std::cos(lat) * std::cos(lon),
-				sphere.center.y + sphere.radius * std::sin(lat),
-				sphere.center.z + sphere.radius * std::cos(lat) * std::sin(lon) };
-			b = {
-				sphere.center.x + sphere.radius * std::cos(lat + kLatEvery) * std::cos(lon),
-				sphere.center.y + sphere.radius * std::sin(lat + kLatEvery),
-				sphere.center.z + sphere.radius * std::cos(lat + kLatEvery) * std::sin(lon) };
-			c = { sphere.center.x + sphere.radius * std::cos(lat) * std::cos(lon + kLonEvery),
-				sphere.center.y + sphere.radius * std::sin(lat),
-				sphere.center.z + sphere.radius * std::cos(lat) * std::sin(lon + kLonEvery) };
-
-			Vector3 aNdc = Transform(a, worldViewProjectionMatrix);
-			Vector3 aScreen = Transform(aNdc, viewportMatrix);
-			Vector3 bNdc = Transform(b, worldViewProjectionMatrix);
-			Vector3 bScreen = Transform(bNdc, viewportMatrix);
-			Vector3 cNdc = Transform(c, worldViewProjectionMatrix);
-			Vector3 cScreen = Transform(cNdc, viewportMatrix);
-			Novice::DrawLine(int(aScreen.x), int(aScreen.y), int(bScreen.x), int(bScreen.y), color);
-			Novice::DrawLine(int(aScreen.x), int(aScreen.y), int(cScreen.x), int(cScreen.y), color);
-		}
-	}
 }
 
 Vector3 Perpendicular(const Vector3& vector)
