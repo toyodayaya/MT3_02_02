@@ -4,6 +4,7 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include <imgui.h>
+#include <algorithm>
 
 const char kWindowTitle[] = "LD2A_04_トヨダヤヤ_MT3_02_05";
 
@@ -27,6 +28,12 @@ struct AABB
 {
 	Vector3 min; // 最小点
 	Vector3 max; // 最大点
+};
+
+struct Sphere
+{
+	Vector3 center;
+	float radius;
 };
 
 //================================================================
@@ -58,7 +65,7 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix);
 void DrawGrid(const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix);
 
 // 当たり判定
-bool isCollision(const AABB& aabb1,const AABB& aabb2);
+bool isCollision(const AABB& aabb1,const Sphere& sphere);
 
 // 法線と垂直なベクトルを求める
 Vector3 Perpendicular(const Vector3& vector);
@@ -84,6 +91,9 @@ Vector3 FloatSubtract(const Vector3& v1, float v2);
 
 // AABBの描画
 void DrawAABB(const AABB& aabb, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
+
+// 球の描画
+void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color);
 
 // 内積の関数
 float Dot(const Vector3& v1, const Vector3& v2);
@@ -115,10 +125,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		{0.0f,0.0f,0.0f}
 	};
 
-	AABB aabb2{
-		{0.2f,0.2f,0.2f},
-		{1.0f,1.0f,1.0f}
-	};
+	Sphere sphere{ {0.0f,0.0f,0.0f}, 0.5f };
 
 	// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
@@ -147,7 +154,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// 球同士の衝突判定処理
 		//================================================================
 
-		if (isCollision(aabb1,aabb2))
+		if (isCollision(aabb1,sphere))
 		{
 			color = 0xe60033FF;
 		}
@@ -173,13 +180,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::DragFloat3("cameraRotate", &cameraRotate.x, 0.01f);
 		ImGui::DragFloat3("aabb1 min", &aabb1.min.x, 0.01f);
 		ImGui::DragFloat3("aabb1 max", &aabb1.max.x, 0.01f);
-		ImGui::DragFloat3("aabb2 min", &aabb2.min.x, 0.01f);
-		ImGui::DragFloat3("aabb2 max", &aabb2.max.x, 0.01f);
+		ImGui::DragFloat3("sphere.center", &sphere.center.x, 0.01f);
+		ImGui::DragFloat("sphere.radius", &sphere.radius, 0.01f);
 		ImGui::End();
 
 		DrawGrid(worldViewProjectionMatrix, viewportMatrix);
 		DrawAABB(aabb1, worldViewProjectionMatrix, viewportMatrix, color);
-		DrawAABB(aabb2, worldViewProjectionMatrix, viewportMatrix, color);
+		DrawSphere(sphere, worldViewProjectionMatrix, viewportMatrix, color);
 
 		///
 		/// ↑描画処理ここまで
@@ -315,11 +322,22 @@ Vector3 Transform(const Vector3& vector, const Matrix4x4& matrix)
 	return result;
 }
 
-bool isCollision(const AABB& aabb1,const AABB& aabb2)
+bool isCollision(const AABB& aabb1,const Sphere& sphere)
 {
-	if (aabb1.min.x <= aabb2.max.x && aabb1.max.x >= aabb2.min.x &&
-		aabb1.min.y <= aabb2.max.y && aabb1.max.y >= aabb2.min.y &&
-		aabb1.min.z <= aabb2.max.z && aabb1.max.z >= aabb2.min.z)
+	// 最近接点を求める
+	Vector3 closestPoint = {
+		std::clamp(sphere.center.x, aabb1.min.x, aabb1.max.x),
+		std::clamp(sphere.center.y, aabb1.min.y, aabb1.max.y),
+		std::clamp(sphere.center.z, aabb1.min.z, aabb1.max.z)
+	};
+
+	Vector3 d = Subtract(sphere.center, closestPoint);
+
+	// 最近接点と球の中心の距離を計算
+	float distance = Length(d);
+
+	// 距離が半径よりも小さければ衝突
+	if (distance <= sphere.radius)
 	{
 		return true;
 	}
@@ -400,6 +418,43 @@ void DrawAABB(const AABB& aabb, const Matrix4x4& worldViewProjectionMatrix, cons
 	Novice::DrawLine(int(vertices[2].x), int(vertices[2].y), int(vertices[6].x), int(vertices[6].y), color);
 	Novice::DrawLine(int(vertices[3].x), int(vertices[3].y), int(vertices[7].x), int(vertices[7].y), color);
 	
+}
+
+void DrawSphere(const Sphere& sphere, const Matrix4x4& worldViewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color)
+{
+	const uint32_t kSubdivision = 10;
+	const float kLonEvery = (2.0f * float(M_PI)) / float(kSubdivision);
+	const float kLatEvery = float(M_PI) / float(kSubdivision);
+	for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex)
+	{
+		float lat = float(-M_PI) / 2.0f + kLatEvery * float(latIndex);
+
+		for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex)
+		{
+			float lon = lonIndex * kLonEvery;
+			Vector3 a, b, c;
+			a = {
+				sphere.center.x + sphere.radius * std::cos(lat) * std::cos(lon),
+				sphere.center.y + sphere.radius * std::sin(lat),
+				sphere.center.z + sphere.radius * std::cos(lat) * std::sin(lon) };
+			b = {
+				sphere.center.x + sphere.radius * std::cos(lat + kLatEvery) * std::cos(lon),
+				sphere.center.y + sphere.radius * std::sin(lat + kLatEvery),
+				sphere.center.z + sphere.radius * std::cos(lat + kLatEvery) * std::sin(lon) };
+			c = { sphere.center.x + sphere.radius * std::cos(lat) * std::cos(lon + kLonEvery),
+				sphere.center.y + sphere.radius * std::sin(lat),
+				sphere.center.z + sphere.radius * std::cos(lat) * std::sin(lon + kLonEvery) };
+
+			Vector3 aNdc = Transform(a, worldViewProjectionMatrix);
+			Vector3 aScreen = Transform(aNdc, viewportMatrix);
+			Vector3 bNdc = Transform(b, worldViewProjectionMatrix);
+			Vector3 bScreen = Transform(bNdc, viewportMatrix);
+			Vector3 cNdc = Transform(c, worldViewProjectionMatrix);
+			Vector3 cScreen = Transform(cNdc, viewportMatrix);
+			Novice::DrawLine(int(aScreen.x), int(aScreen.y), int(bScreen.x), int(bScreen.y), color);
+			Novice::DrawLine(int(aScreen.x), int(aScreen.y), int(cScreen.x), int(cScreen.y), color);
+		}
+	}
 }
 
 Vector3 Perpendicular(const Vector3& vector)
